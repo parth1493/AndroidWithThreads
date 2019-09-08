@@ -4,6 +4,7 @@ import android.app.SearchManager;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Message;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v4.widget.SwipeRefreshLayout;
@@ -18,11 +19,13 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 
+
 import com.parth.threadandroid.EditWordActivity;
 import com.parth.threadandroid.R;
 import com.parth.threadandroid.adapters.WordsRecyclerAdapter;
 import com.parth.threadandroid.models.Word;
-import com.parth.threadandroid.threading.MyThread;
+import com.parth.threadandroid.threading.DeleteWordRunnable;
+import com.parth.threadandroid.threading.RetrieveWordsRunnable;
 import com.parth.threadandroid.util.Constants;
 import com.parth.threadandroid.util.VerticalSpacingItemDecorator;
 
@@ -49,7 +52,7 @@ public class DictionaryActivity extends AppCompatActivity implements
     private WordsRecyclerAdapter mWordRecyclerAdapter;
     private FloatingActionButton mFab;
     private String mSearchQuery = "";
-    private MyThread mMyThread;
+    private HandlerThread mHandlerThread;
     private Handler mMainThreadHandler;
 
 
@@ -89,15 +92,16 @@ public class DictionaryActivity extends AppCompatActivity implements
     protected void onStart() {
         Log.d(TAG, "onStart: called.");
         super.onStart();
-        mMyThread = new MyThread(this, mMainThreadHandler);
-        mMyThread.start();
+        mHandlerThread = new HandlerThread("DictionaryActivity HandlerThread");
+        mHandlerThread.start();
     }
 
     @Override
     protected void onStop() {
         Log.d(TAG, "onStop: called.");
         super.onStop();
-        mMyThread.quitThread();
+        mHandlerThread.quit();
+//        mHandlerThread.quitSafely();
     }
 
 
@@ -111,11 +115,9 @@ public class DictionaryActivity extends AppCompatActivity implements
 
     private void retrieveWords(String title) {
         Log.d(TAG, "retrieveWords: called.");
-        Message message = Message.obtain(null, Constants.WORDS_RETRIEVE);
-        Bundle bundle = new Bundle();
-        bundle.putString("title", title);
-        message.setData(bundle);
-        mMyThread.sendMessageToBackgroundThread(message);
+
+        Handler backgroundHandler = new Handler(mHandlerThread.getLooper());
+        backgroundHandler.post(new RetrieveWordsRunnable(this, mMainThreadHandler, title));
     }
 
 
@@ -125,11 +127,8 @@ public class DictionaryActivity extends AppCompatActivity implements
         mWordRecyclerAdapter.getFilteredWords().remove(word);
         mWordRecyclerAdapter.notifyDataSetChanged();
 
-        Message message = Message.obtain(null, Constants.WORD_DELETE);
-        Bundle bundle = new Bundle();
-        bundle.putParcelable("word_delete", word);
-        message.setData(bundle);
-        mMyThread.sendMessageToBackgroundThread(message);
+        Handler backgroundHandler = new Handler(mHandlerThread.getLooper());
+        backgroundHandler.post(new DeleteWordRunnable(this, mMainThreadHandler, word));
     }
 
 
