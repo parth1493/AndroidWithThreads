@@ -1,4 +1,4 @@
-package com.parth.threadandroid.persistence;
+package com.codingwithmitch.dictionary.persistence;
 
 import android.arch.persistence.room.Dao;
 import android.arch.persistence.room.Delete;
@@ -11,6 +11,9 @@ import java.util.List;
 
 @Dao
 public interface WordDao {
+
+    @Query("SELECT * FROM Word WHERE title LIKE :title || '%'")
+    List<Word> getWords(String title);
 
     @Query("SELECT * FROM Word")
     List<Word> getAllWords();

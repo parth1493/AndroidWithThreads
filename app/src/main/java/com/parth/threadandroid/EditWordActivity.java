@@ -2,10 +2,12 @@ package com.parth.threadandroid;
 
 import android.app.Activity;
 import android.content.Context;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.support.annotation.Nullable;
 import android.support.design.widget.CoordinatorLayout;
 import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
@@ -19,6 +21,8 @@ import android.widget.RelativeLayout;
 import android.widget.TextView;
 
 import com.parth.threadandroid.models.Word;
+import com.parth.threadandroid.threading.MyThread;
+import com.parth.threadandroid.util.Constants;
 import com.parth.threadandroid.util.LinedEditText;
 import com.parth.threadandroid.util.Utility;
 
@@ -27,9 +31,11 @@ public class EditWordActivity extends AppCompatActivity implements
         View.OnTouchListener,
         GestureDetector.OnGestureListener,
         GestureDetector.OnDoubleTapListener,
-        TextWatcher {
+        TextWatcher,
+        Handler.Callback
+{
 
-    private static final String TAG = "NoteActivity";
+    private static final String TAG = "EditWordActivity";
     private static final int EDIT_MODE_ENABLED = 1;
     private static final int EDIT_MODE_DISABLED = 0;
 
@@ -47,6 +53,8 @@ public class EditWordActivity extends AppCompatActivity implements
     private boolean mIsNewWord = false;
     private Word mWordInitial = new Word();
     private Word mWordFinal = new Word();
+    private MyThread mMyThread;
+    private Handler mMainThreadHandler = null;
 
 
     @Override
@@ -69,54 +77,78 @@ public class EditWordActivity extends AppCompatActivity implements
         mLinedEditText.setOnTouchListener(this);
         mEditTitle.addTextChangedListener(this);
 
+        mMainThreadHandler = new Handler(this);
 
         getSupportActionBar().hide();
+    }
+
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        mMyThread = new MyThread(this, mMainThreadHandler);
+        mMyThread.start();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        mMyThread.quitThread();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (getIncomingIntent()) {
-            setNoteProperties();
+        if(getIncomingIntent()){
+            setWordProperties();
             disableContentInteraction();
-        } else {
-            setNewNoteProperties();
+        }
+        else{
+            setNewWordProperties();
             enableEditMode();
         }
     }
 
-    private void saveChanges() {
-        if (mIsNewWord) {
-            saveNewNote();
-        } else {
-            updateNote();
+    private void saveChanges(){
+        if(mIsNewWord){
+            saveNewWord();
+        }else{
+            updateWord();
         }
     }
 
-    public void saveNewNote() {
-
+    public void saveNewWord() {
+        Message message = Message.obtain(null, Constants.WORD_INSERT_NEW);
+        Bundle bundle = new Bundle();
+        bundle.putParcelable("word_new", mWordFinal);
+        message.setData(bundle);
+        mMyThread.sendMessageToBackgroundThread(message);
     }
 
-    public void updateNote() {
-
+    public void updateWord() {
+        Message message = Message.obtain(null, Constants.WORD_UPDATE);
+        Bundle bundle = new Bundle();
+        bundle.putParcelable("word_update", mWordFinal);
+        message.setData(bundle);
+        mMyThread.sendMessageToBackgroundThread(message);
     }
 
 
-    private void setNewNoteProperties() {
+    private void setNewWordProperties(){
         mViewTitle.setText("Word");
         mEditTitle.setText("Word");
         appendNewLines();
     }
 
-    private void setNoteProperties() {
+    private void setWordProperties(){
         mViewTitle.setText(mWordInitial.getTitle());
         mEditTitle.setText(mWordInitial.getTitle());
         mLinedEditText.setText(mWordInitial.getContent());
     }
 
 
-    private boolean getIncomingIntent() {
-        if (getIntent().hasExtra("selected_word")) {
+    private boolean getIncomingIntent(){
+        if(getIntent().hasExtra("selected_word")){
             Word incomingWord = getIntent().getParcelableExtra("selected_word");
             mWordInitial.setTitle(incomingWord.getTitle());
             mWordInitial.setTimestamp(incomingWord.getTimestamp());
@@ -135,18 +167,18 @@ public class EditWordActivity extends AppCompatActivity implements
         return false;
     }
 
-    private void appendNewLines() {
+    private void appendNewLines(){
         String text = mLinedEditText.getText().toString();
         StringBuilder sb = new StringBuilder();
         sb.append(text);
-        for (int i = 0; i < 20; i++) {
+        for(int i = 0; i < 20; i++){
             sb.append("\n");
         }
         mLinedEditText.setText(sb.toString());
     }
 
 
-    private void enableEditMode() {
+    private void enableEditMode(){
         mBackArrowContainer.setVisibility(View.GONE);
         mCheckContainer.setVisibility(View.VISIBLE);
 
@@ -161,7 +193,7 @@ public class EditWordActivity extends AppCompatActivity implements
     }
 
 
-    private void disableEditMode() {
+    private void disableEditMode(){
         Log.d(TAG, "disableEditMode: called.");
         hideSoftkeyboard();
 
@@ -179,22 +211,22 @@ public class EditWordActivity extends AppCompatActivity implements
         String temp = mLinedEditText.getText().toString();
         temp = temp.replace("\n", "");
         temp = temp.replace(" ", "");
-        if (temp.length() > 0) {
+        if(temp.length() > 0){
             mWordFinal.setTitle(mEditTitle.getText().toString());
             mWordFinal.setContent(mLinedEditText.getText().toString());
             String timestamp = Utility.getCurrentTimeStamp();
             mWordFinal.setTimestamp(timestamp);
 
             // If the note was altered, save it.
-            if (!mWordFinal.getContent().equals(mWordInitial.getContent())
-                    || !mWordFinal.getTitle().equals(mWordInitial.getTitle())) {
+            if(!mWordFinal.getContent().equals(mWordInitial.getContent())
+                    || !mWordFinal.getTitle().equals(mWordInitial.getTitle())){
                 Log.d(TAG, "disableEditMode: SAVING WORD: " + mLinedEditText.getText().toString());
                 saveChanges();
             }
         }
     }
 
-    private void disableContentInteraction() {
+    private void disableContentInteraction(){
         mLinedEditText.setKeyListener(null);
         mLinedEditText.setFocusable(false);
         mLinedEditText.setFocusableInTouchMode(false);
@@ -202,7 +234,7 @@ public class EditWordActivity extends AppCompatActivity implements
         mLinedEditText.clearFocus();
     }
 
-    private void enableContentInteraction() {
+    private void enableContentInteraction(){
         mLinedEditText.setKeyListener(new EditText(this).getKeyListener());
         mLinedEditText.setFocusable(true);
         mLinedEditText.setFocusableInTouchMode(true);
@@ -210,14 +242,14 @@ public class EditWordActivity extends AppCompatActivity implements
         mLinedEditText.requestFocus();
     }
 
-    private void showSoftkeyboard() {
+    private void showSoftkeyboard(){
         InputMethodManager inputMethodManager =
-                (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                (InputMethodManager)getSystemService(Context.INPUT_METHOD_SERVICE);
         inputMethodManager.toggleSoftInputFromWindow(
                 mCoordinatorLayout.getApplicationWindowToken(), InputMethodManager.SHOW_FORCED, 0);
     }
 
-    private void hideSoftkeyboard() {
+    private void hideSoftkeyboard(){
         InputMethodManager imm = (InputMethodManager) this.getSystemService(Activity.INPUT_METHOD_SERVICE);
         //Find the currently focused view, so we can grab the correct window token from it.
         View view = this.getCurrentFocus();
@@ -230,16 +262,16 @@ public class EditWordActivity extends AppCompatActivity implements
 
     @Override
     public void onClick(View v) {
-        switch (v.getId()) {
-            case R.id.toolbar_back_arrow: {
+        switch (v.getId()){
+            case R.id.toolbar_back_arrow:{
                 finish();
                 break;
             }
-            case R.id.toolbar_check: {
+            case R.id.toolbar_check:{
                 disableEditMode();
                 break;
             }
-            case R.id.word_text_title: {
+            case R.id.word_text_title:{
                 enableEditMode();
                 mEditTitle.requestFocus();
                 mEditTitle.setSelection(mEditTitle.length());
@@ -251,9 +283,10 @@ public class EditWordActivity extends AppCompatActivity implements
 
     @Override
     public void onBackPressed() {
-        if (mEditModeState == EDIT_MODE_ENABLED) {
+        if(mEditModeState == EDIT_MODE_ENABLED){
             onClick(mCheck);
-        } else {
+        }
+        else{
             super.onBackPressed();
         }
 
@@ -263,10 +296,10 @@ public class EditWordActivity extends AppCompatActivity implements
     public boolean onTouch(View v, MotionEvent event) {
 
         Log.d(TAG, "onTouch: called.");
-        if (v.getId() != R.id.toolbar_back_arrow
-                && v.getId() != R.id.toolbar_check) {
-            if (v.getId() == R.id.word_text) {
-                if (mEditModeState == EDIT_MODE_DISABLED) {
+        if(v.getId() != R.id.toolbar_back_arrow
+                && v.getId() != R.id.toolbar_check){
+            if(v.getId() == R.id.word_text){
+                if(mEditModeState == EDIT_MODE_DISABLED){
                     return mGestureDetector.onTouchEvent(event);
                 }
 
@@ -335,6 +368,32 @@ public class EditWordActivity extends AppCompatActivity implements
     public void afterTextChanged(Editable s) {
 
     }
-}
 
+    @Override
+    public boolean handleMessage(Message msg) {
+        switch (msg.what){
+
+            case Constants.WORD_INSERT_SUCCESS:{
+                Log.d(TAG, "handleMessage: successfully inserted a new word. This is from thread: " + getMainLooper().getThread().getName());
+
+                break;
+            }
+            case Constants.WORD_INSERT_FAIL:{
+                Log.d(TAG, "handleMessage: unable to insert a word. This is from thread: " + getMainLooper().getThread().getName());
+                break;
+            }
+            case Constants.WORD_UPDATE_SUCCESS:{
+                Log.d(TAG, "handleMessage: successfully updated a word. This is from thread: " + getMainLooper().getThread().getName());
+
+                break;
+            }
+            case Constants.WORD_UPDATE_FAIL:{
+                Log.d(TAG, "handleMessage: unable to update a word. This is from thread: " + getMainLooper().getThread().getName());
+                break;
+            }
+        }
+        return true;
+    }
+
+}
 

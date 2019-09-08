@@ -11,7 +11,7 @@ import com.parth.threadandroid.models.Word;
 public abstract class AppDatabase extends RoomDatabase {
 
     private static AppDatabase mInstance;
-    public abstract WordDao wordDataDao();
+    public abstract com.codingwithmitch.dictionary.persistence.WordDao wordDataDao();
     public static final String DATABASE_NAME = "words_db";
 
     public static AppDatabase getDatabase(Context context) {
