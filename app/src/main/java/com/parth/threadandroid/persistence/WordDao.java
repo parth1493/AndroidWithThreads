@@ -32,4 +32,6 @@ public interface WordDao {
 
     @Query("SELECT COUNT(*) FROM Word")
     public Integer getNumRows();
+
+
 }

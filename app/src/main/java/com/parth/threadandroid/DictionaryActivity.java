@@ -1,8 +1,9 @@
 package com.parth.threadandroid;
-
 import android.app.SearchManager;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Handler;
+import android.os.Message;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v4.widget.SwipeRefreshLayout;
 import android.support.v7.app.AppCompatActivity;
@@ -20,17 +21,24 @@ import android.view.View;
 import com.parth.threadandroid.adapters.WordsRecyclerAdapter;
 import com.parth.threadandroid.models.Word;
 import com.parth.threadandroid.threading.DeleteWordAsyncTask;
-import com.parth.threadandroid.threading.RetrieveWordAsyncTask;
+import com.parth.threadandroid.threading.RetrieveRowsAsyncTask;
 import com.parth.threadandroid.threading.TaskDelegate;
+import com.parth.threadandroid.threading.ThreadPoolRunnable;
+import com.parth.threadandroid.util.Constants;
 import com.parth.threadandroid.util.VerticalSpacingItemDecorator;
 
 import java.util.ArrayList;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 
 public class DictionaryActivity extends AppCompatActivity implements
         WordsRecyclerAdapter.OnWordListener,
         View.OnClickListener,
         SwipeRefreshLayout.OnRefreshListener,
-        TaskDelegate
+        TaskDelegate,
+        Handler.Callback
 {
 
     private static final String TAG = "DictionaryActivity";
@@ -44,8 +52,11 @@ public class DictionaryActivity extends AppCompatActivity implements
     private WordsRecyclerAdapter mWordRecyclerAdapter;
     private FloatingActionButton mFab;
     private String mSearchQuery = "";
-    private RetrieveWordAsyncTask retrieveWordAsyncTask;
-    private DeleteWordAsyncTask deleteWordAsyncTask;
+    private DeleteWordAsyncTask mDeleteWordAsyncTask;
+    private RetrieveRowsAsyncTask mRetrieveRowsAsyncTask;
+    private ExecutorService mExecutorService = null;
+    private int mNumRows = 0;
+    private Handler mMainThreadHandler;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,9 +71,17 @@ public class DictionaryActivity extends AppCompatActivity implements
         mFab.setOnClickListener(this);
         mSwipeRefresh.setOnRefreshListener(this);
 
+        mMainThreadHandler = new Handler(this);
+        initExecutorThreadPool();
+
         setupRecyclerView();
     }
 
+    private void initExecutorThreadPool(){
+        int numProcessors = Runtime.getRuntime().availableProcessors();
+        Log.d(TAG, "initExecutorThreadPool: processors: " + numProcessors);
+        mExecutorService = Executors.newFixedThreadPool(numProcessors);
+    }
 
     private void restoreInstanceState(Bundle savedInstanceState){
         if(savedInstanceState != null){
@@ -81,22 +100,21 @@ public class DictionaryActivity extends AppCompatActivity implements
     protected void onStart() {
         Log.d(TAG, "onStart: called.");
         super.onStart();
-
     }
 
     @Override
     protected void onStop() {
         Log.d(TAG, "onStop: called.");
         super.onStop();
-        if(retrieveWordAsyncTask != null)
-        {
-            retrieveWordAsyncTask.cancel(true);
+
+        if(mDeleteWordAsyncTask != null){
+            mDeleteWordAsyncTask.cancel(true);
         }
 
-        if(deleteWordAsyncTask != null)
-        {
-            deleteWordAsyncTask.cancel(true);
+        if(mRetrieveRowsAsyncTask != null){
+            mRetrieveRowsAsyncTask.cancel(true);
         }
+        mExecutorService.shutdownNow();
     }
 
 
@@ -110,12 +128,12 @@ public class DictionaryActivity extends AppCompatActivity implements
 
     private void retrieveWords(String title) {
         Log.d(TAG, "retrieveWords: called.");
-        if(retrieveWordAsyncTask != null)
-        {
-            retrieveWordAsyncTask.cancel(true);
+
+        if(mRetrieveRowsAsyncTask != null){
+            mRetrieveRowsAsyncTask.cancel(true);
         }
-        retrieveWordAsyncTask = new RetrieveWordAsyncTask(this,this);
-        retrieveWordAsyncTask.execute(title);
+        mRetrieveRowsAsyncTask = new RetrieveRowsAsyncTask(this,this);
+        mRetrieveRowsAsyncTask.execute();
     }
 
 
@@ -124,12 +142,12 @@ public class DictionaryActivity extends AppCompatActivity implements
         mWords.remove(word);
         mWordRecyclerAdapter.getFilteredWords().remove(word);
         mWordRecyclerAdapter.notifyDataSetChanged();
-        if(deleteWordAsyncTask != null)
-        {
-            deleteWordAsyncTask.cancel(true);
+
+        if(mDeleteWordAsyncTask != null){
+            mDeleteWordAsyncTask.cancel(true);
         }
-        deleteWordAsyncTask = new DeleteWordAsyncTask(this);
-        deleteWordAsyncTask.execute(word);
+        mDeleteWordAsyncTask = new DeleteWordAsyncTask(this);
+        mDeleteWordAsyncTask.execute(word);
     }
 
 
@@ -247,6 +265,54 @@ public class DictionaryActivity extends AppCompatActivity implements
         mWords.addAll(words);
         mWordRecyclerAdapter.notifyDataSetChanged();
     }
+
+    @Override
+    public void onRowsRetrieved(int numRows) {
+        Log.d(TAG, "onRowsRetrieved: num rows: " + numRows);
+        mNumRows = numRows;
+        executeThreadPool();
+
+    }
+
+    private void executeThreadPool(){
+        clearWords();
+
+        int numTasks = Runtime.getRuntime().availableProcessors();
+
+        int chunkSize = (mNumRows % numTasks) != 0 ?
+                (int) Math.ceil((double)mNumRows / (double)numTasks) : (int) Math.floor((double)mNumRows / (double)numTasks);
+        Log.d(TAG, "executeThreadPool: chunksize: " + chunkSize);
+
+        for(int i = 0; i <numTasks; i++){
+            Log.d(TAG, "executeThreadPool: starting query at: row#" + (chunkSize * i));
+
+
+            ThreadPoolRunnable runnable = new ThreadPoolRunnable(
+                    this,
+                    mMainThreadHandler,
+                    chunkSize * i,
+                    chunkSize
+            );
+            mExecutorService.submit(runnable);
+        }
+    }
+
+    @Override
+    public boolean handleMessage(Message message) {
+
+        switch (message.what){
+
+            case Constants.MSG_THREAD_POOL_TASK_COMPLETE:{
+                ArrayList<Word> words = message.getData().getParcelableArrayList("word_data_from_thread_pool");
+                mWords.addAll(words);
+                mWordRecyclerAdapter.getFilter().filter(mSearchQuery);
+
+                Log.d(TAG, "handleMessage: recieved some words: " + words.size());
+                Log.d(TAG, "handleMessage: total words: " + mWords.size());
+                break;
+            }
+
+        }
+        return false;
+    }
 }
-
-

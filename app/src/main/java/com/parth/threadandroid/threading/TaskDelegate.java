@@ -8,4 +8,6 @@ public interface TaskDelegate {
 
     void onWordsRetrieve(ArrayList<Word> words);
 
+    void onRowsRetrieved(int numRows);
+
 }
