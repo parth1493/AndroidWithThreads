@@ -3,9 +3,6 @@ package com.parth.threadandroid;
 import android.app.SearchManager;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Handler;
-import android.os.HandlerThread;
-import android.os.Message;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v4.widget.SwipeRefreshLayout;
 import android.support.v7.app.AppCompatActivity;
@@ -20,25 +17,20 @@ import android.view.MenuItem;
 import android.view.View;
 
 
-import com.parth.threadandroid.EditWordActivity;
-import com.parth.threadandroid.R;
 import com.parth.threadandroid.adapters.WordsRecyclerAdapter;
 import com.parth.threadandroid.models.Word;
-import com.parth.threadandroid.threading.DeleteWordRunnable;
-import com.parth.threadandroid.threading.RetrieveWordsRunnable;
-import com.parth.threadandroid.util.Constants;
+import com.parth.threadandroid.threading.DeleteWordAsyncTask;
+import com.parth.threadandroid.threading.RetrieveWordAsyncTask;
+import com.parth.threadandroid.threading.TaskDelegate;
 import com.parth.threadandroid.util.VerticalSpacingItemDecorator;
 
-import java.lang.reflect.Array;
 import java.util.ArrayList;
-import java.util.Arrays;
-
 
 public class DictionaryActivity extends AppCompatActivity implements
         WordsRecyclerAdapter.OnWordListener,
         View.OnClickListener,
         SwipeRefreshLayout.OnRefreshListener,
-        Handler.Callback
+        TaskDelegate
 {
 
     private static final String TAG = "DictionaryActivity";
@@ -52,9 +44,8 @@ public class DictionaryActivity extends AppCompatActivity implements
     private WordsRecyclerAdapter mWordRecyclerAdapter;
     private FloatingActionButton mFab;
     private String mSearchQuery = "";
-    private HandlerThread mHandlerThread;
-    private Handler mMainThreadHandler;
-
+    private RetrieveWordAsyncTask retrieveWordAsyncTask;
+    private DeleteWordAsyncTask deleteWordAsyncTask;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -68,8 +59,6 @@ public class DictionaryActivity extends AppCompatActivity implements
 
         mFab.setOnClickListener(this);
         mSwipeRefresh.setOnRefreshListener(this);
-
-        mMainThreadHandler = new Handler(this);
 
         setupRecyclerView();
     }
@@ -92,16 +81,22 @@ public class DictionaryActivity extends AppCompatActivity implements
     protected void onStart() {
         Log.d(TAG, "onStart: called.");
         super.onStart();
-        mHandlerThread = new HandlerThread("DictionaryActivity HandlerThread");
-        mHandlerThread.start();
+
     }
 
     @Override
     protected void onStop() {
         Log.d(TAG, "onStop: called.");
         super.onStop();
-        mHandlerThread.quit();
-//        mHandlerThread.quitSafely();
+        if(retrieveWordAsyncTask != null)
+        {
+            retrieveWordAsyncTask.cancel(true);
+        }
+
+        if(deleteWordAsyncTask != null)
+        {
+            deleteWordAsyncTask.cancel(true);
+        }
     }
 
 
@@ -115,9 +110,12 @@ public class DictionaryActivity extends AppCompatActivity implements
 
     private void retrieveWords(String title) {
         Log.d(TAG, "retrieveWords: called.");
-
-        Handler backgroundHandler = new Handler(mHandlerThread.getLooper());
-        backgroundHandler.post(new RetrieveWordsRunnable(this, mMainThreadHandler, title));
+        if(retrieveWordAsyncTask != null)
+        {
+            retrieveWordAsyncTask.cancel(true);
+        }
+        retrieveWordAsyncTask = new RetrieveWordAsyncTask(this,this);
+        retrieveWordAsyncTask.execute(title);
     }
 
 
@@ -126,9 +124,12 @@ public class DictionaryActivity extends AppCompatActivity implements
         mWords.remove(word);
         mWordRecyclerAdapter.getFilteredWords().remove(word);
         mWordRecyclerAdapter.notifyDataSetChanged();
-
-        Handler backgroundHandler = new Handler(mHandlerThread.getLooper());
-        backgroundHandler.post(new DeleteWordRunnable(this, mMainThreadHandler, word));
+        if(deleteWordAsyncTask != null)
+        {
+            deleteWordAsyncTask.cancel(true);
+        }
+        deleteWordAsyncTask = new DeleteWordAsyncTask(this);
+        deleteWordAsyncTask.execute(word);
     }
 
 
@@ -240,53 +241,11 @@ public class DictionaryActivity extends AppCompatActivity implements
     }
 
     @Override
-    public boolean handleMessage(Message msg) {
-        switch (msg.what){
+    public void onWordsRetrieve(ArrayList<Word> words) {
+        clearWords();
 
-            case Constants.WORDS_RETRIEVE_SUCCESS:{
-                Log.d(TAG, "handleMessage: successfully retrieved words. This is from thread: " + Thread.currentThread().getName());
-
-                clearWords();
-
-                ArrayList<Word> words = new ArrayList<>(msg.getData().<Word>getParcelableArrayList("words_retrieve"));
-                mWords.addAll(words);
-                mWordRecyclerAdapter.getFilter().filter(mSearchQuery);
-                break;
-            }
-
-            case Constants.WORDS_RETRIEVE_FAIL:{
-                Log.d(TAG, "handleMessage: unable to retrieve words. This is from thread: " + Thread.currentThread().getName());
-
-                clearWords();
-                break;
-            }
-
-            case Constants.WORD_INSERT_SUCCESS:{
-                Log.d(TAG, "handleMessage: successfully inserted new word. This is from thread: " + Thread.currentThread().getName());
-
-                break;
-            }
-
-            case Constants.WORD_INSERT_FAIL:{
-                Log.d(TAG, "handleMessage: unable to insert new word. This is from thread: " + Thread.currentThread().getName());
-
-                break;
-            }
-
-            case Constants.WORD_DELETE_SUCCESS:{
-                Log.d(TAG, "handleMessage: successfully deleted a word. This is from thread: " + Thread.currentThread().getName());
-
-                break;
-            }
-
-            case Constants.WORD_DELETE_FAIL:{
-                Log.d(TAG, "handleMessage: unable to delete word. This is from thread: " + Thread.currentThread().getName());
-
-                break;
-            }
-
-        }
-        return true;
+        mWords.addAll(words);
+        mWordRecyclerAdapter.notifyDataSetChanged();
     }
 }
 

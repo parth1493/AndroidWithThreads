@@ -56,6 +56,7 @@ public class EditWordActivity extends AppCompatActivity implements
     private MyThread mMyThread;
     private Handler mMainThreadHandler = null;
 
+
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -75,7 +76,9 @@ public class EditWordActivity extends AppCompatActivity implements
         mGestureDetector = new GestureDetector(this, this);
         mLinedEditText.setOnTouchListener(this);
         mEditTitle.addTextChangedListener(this);
+
         mMainThreadHandler = new Handler(this);
+
         getSupportActionBar().hide();
     }
 
